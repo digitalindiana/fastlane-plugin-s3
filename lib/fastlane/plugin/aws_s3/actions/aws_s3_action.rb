@@ -6,6 +6,8 @@ require 'cgi'
 require 'mime-types'
 require 'pathname'
 require 'shellwords'
+require 'addressable/uri'
+require 'tzinfo'
 
 module Fastlane
   module Actions
@@ -58,6 +60,7 @@ module Fastlane
         params[:folder] = config[:folder]
         params[:password] = config[:password]
         params[:password_html_template] = config[:password_html_template]
+        params[:host_override] = config[:host_override]
 
         # Pulling parameters for other uses
         s3_region = params[:region]
@@ -91,6 +94,7 @@ module Fastlane
           UI.important("If you want to use specific creds to S3 access, you can pass using `access_key: 'key'` and `secret_access_key: 'secret key'` (or use `aws_profile: 'profile'`)")
           creds = Aws::InstanceProfileCredentials.new()
         end
+
         Aws.config.update({
                             region: s3_region,
                             credentials: creds
@@ -133,6 +137,7 @@ module Fastlane
         override_file_name = params[:override_file_name]
         password = params[:password]
         password_html_template = params[:password_html_template]
+        host_override = params[:host_override]
 
         url_part = self.expand_path_with_substitutions_from_ipa_plist(ipa_file, s3_path)
 
@@ -140,8 +145,8 @@ module Fastlane
         ipa_file_name = "#{url_part}#{override_file_name ? override_file_name : ipa_file_basename}"
         ipa_file_data = File.open(ipa_file, 'rb')
 
-        ipa_url = self.upload_file(s3_client, s3_bucket, app_directory, ipa_file_name, ipa_file_data, acl, server_side_encryption)
-       
+        ipa_url = self.upload_file(s3_client, s3_bucket, host_override, app_directory, ipa_file_name, ipa_file_data, acl, server_side_encryption)
+        
         # Setting action and environment variables
         Actions.lane_context[SharedValues::S3_IPA_OUTPUT_PATH] = ipa_url
         ENV[SharedValues::S3_IPA_OUTPUT_PATH.to_s] = ipa_url
@@ -151,7 +156,7 @@ module Fastlane
           dsym_file_name = "#{url_part}#{dsym_file_basename}"
           dsym_file_data = File.open(dsym_file, 'rb')
 
-          dsym_url = self.upload_file(s3_client, s3_bucket, app_directory, dsym_file_name, dsym_file_data, acl, server_side_encryption)
+          dsym_url = self.upload_file(s3_client, s3_bucket, host_override, app_directory, dsym_file_name, dsym_file_data, acl, server_side_encryption)
 
           # Setting action and environment variables
           Actions.lane_context[SharedValues::S3_DSYM_OUTPUT_PATH] = dsym_url
@@ -212,7 +217,7 @@ module Fastlane
         # plist uploading
         #
         #####################################
-        plist_url = self.upload_file(s3_client, s3_bucket, app_directory, plist_file_name, plist_render, acl, server_side_encryption)
+        plist_url = self.upload_file(s3_client, s3_bucket, host_override, app_directory, plist_file_name, plist_render, acl, server_side_encryption)
 
         # Creates html from template
         if html_template_path && File.exist?(html_template_path)
@@ -256,8 +261,11 @@ module Fastlane
             system("mkdir temp")
             system("echo '#{html_render}' > #{temp_file}")
 
+            tz = TZInfo::Timezone.get('US/Pacific')
+            description = "Last updated: #{Time.now.getlocal(tz.current_period.offset.utc_total_offset)}"
+
             puts "Encrypting HTML page.."
-            system("node #{gem_dir}/node_modules/staticrypt #{temp_file} #{safePassword} #{template_param} --output #{encrypted_file}")
+            system("node #{gem_dir}/node_modules/staticrypt #{temp_file} #{safePassword} #{template_param} -o #{encrypted_file} -i '#{description}'")
 
             html_render = File.read(encrypted_file)
 
@@ -290,8 +298,8 @@ module Fastlane
 
         skip_html = params[:skip_html_upload]
         html_file_name = "#{url_part}#{html_file_name}" if generate_html_in_folder
-        html_url = self.upload_file(s3_client, s3_bucket, app_directory, html_file_name, html_render, acl, server_side_encryption) unless skip_html
-        version_url = self.upload_file(s3_client, s3_bucket, app_directory, version_file_name, version_render, acl, server_side_encryption)
+        html_url = self.upload_file(s3_client, s3_bucket, host_override, app_directory, html_file_name, html_render, acl, server_side_encryption) unless skip_html
+        version_url = self.upload_file(s3_client, s3_bucket, host_override, app_directory, version_file_name, version_render, acl, server_side_encryption)
 
         # Setting action and environment variables
         Actions.lane_context[SharedValues::S3_PLIST_OUTPUT_PATH] = plist_url
@@ -323,8 +331,9 @@ module Fastlane
         sh("zip -r '#{archive_zip}' '#{archive}'")
         full_archive_zip_name = "#{url_part}#{archive_zip_name}"
         archive_zip_data = File.open(archive_zip, 'rb')
+        host_override = params[:host_override]
 
-        archive_url = self.upload_file(s3_client, s3_bucket, app_directory, full_archive_zip_name, archive_zip_data, acl, server_side_encryption)
+        archive_url = self.upload_file(s3_client, s3_bucket, host_override, app_directory, full_archive_zip_name, archive_zip_data, acl, server_side_encryption)
 
         Actions.lane_context[SharedValues::S3_XCARCHIVE_OUTPUT_PATH] = archive_url
         ENV[SharedValues::S3_XCARCHIVE_OUTPUT_PATH.to_s] = archive_url
@@ -351,6 +360,7 @@ module Fastlane
         version_template_params = params[:version_template_params] || {}
         version_file_name = params[:version_file_name]
         override_file_name = params[:override_file_name]
+        host_override = params[:host_override]
 
         url_part = s3_path
 
@@ -358,7 +368,7 @@ module Fastlane
         apk_file_name = "#{url_part}#{override_file_name ? override_file_name : apk_file_basename}"
         apk_file_data = File.open(apk_file, 'rb')
 
-        apk_url = self.upload_file(s3_client, s3_bucket, app_directory, apk_file_name, apk_file_data, acl, server_side_encryption)
+        apk_url = self.upload_file(s3_client, s3_bucket, host_override, app_directory, apk_file_name, apk_file_data, acl, server_side_encryption)
 
         # Setting action and environment variables
         Actions.lane_context[SharedValues::S3_APK_OUTPUT_PATH] = apk_url
@@ -417,8 +427,8 @@ module Fastlane
 
         skip_html = params[:skip_html_upload]
         html_file_name = "#{url_part}#{html_file_name}" if generate_html_in_folder
-        html_url = self.upload_file(s3_client, s3_bucket, app_directory, html_file_name, html_render, acl, server_side_encryption) unless skip_html
-        version_url = self.upload_file(s3_client, s3_bucket, app_directory, version_file_name, version_render, acl, server_side_encryption)
+        html_url = self.upload_file(s3_client, s3_bucket, host_override, app_directory, html_file_name, html_render, acl, server_side_encryption) unless skip_html
+        version_url = self.upload_file(s3_client, s3_bucket, host_override, app_directory, version_file_name, version_render, acl, server_side_encryption)
 
         Actions.lane_context[SharedValues::S3_HTML_OUTPUT_PATH] = html_url unless skip_html
         ENV[SharedValues::S3_HTML_OUTPUT_PATH.to_s] = html_url unless skip_html
@@ -444,11 +454,12 @@ module Fastlane
 
           s3_path = "#{version_code}_#{version_name}/" unless s3_path
           app_directory = params[:app_directory]
+          host_override = params[:host_override]
           url_part = s3_path
           zip_file_name = "#{url_part}source.zip"
 
           output_path_data = File.open("#{output_file_path}", 'rb')
-          source_url = self.upload_file(s3_client, s3_bucket, app_directory, zip_file_name, output_path_data, acl, server_side_encryption)
+          source_url = self.upload_file(s3_client, s3_bucket, host_override, app_directory, zip_file_name, output_path_data, acl, server_side_encryption)
 
           Actions.lane_context[SharedValues::S3_SOURCE_OUTPUT_PATH] = source_url
           ENV[SharedValues::S3_SOURCE_OUTPUT_PATH.to_s] = source_url
@@ -500,6 +511,7 @@ module Fastlane
         s3_path = "files" unless s3_path
 
         app_directory = params[:app_directory]
+        host_override = params[:host_override]
         url_part = s3_path
 
         Actions.lane_context[SharedValues::S3_FILES_OUTPUT_PATHS] = []
@@ -508,8 +520,7 @@ module Fastlane
           file_data = File.open(file, 'rb')
           file_name = url_part + '/' + file_basename
 
-          file_url = self.upload_file(s3_client, s3_bucket, app_directory, file_name, file_data, acl, server_side_encryption)
-
+          file_url = self.upload_file(s3_client, s3_bucket, host_override, app_directory, file_name, file_data, acl, server_side_encryption)
           # Setting action and environment variables
           Actions.lane_context[SharedValues::S3_FILES_OUTPUT_PATHS] << file_url
         end
@@ -519,9 +530,11 @@ module Fastlane
 
         s3_path = "files" unless s3_path
 
+
         s3_path = s3_path.to_s + '/' + File.basename(folder)
         url_part = s3_path
         app_directory = params[:app_directory]
+        host_override = params[:host_override]
 
         unless File.directory?(folder)
           UI.user_error!("Invalid folder parameter. `#{File.expand_path(folder)} is not a directory!")
@@ -533,14 +546,14 @@ module Fastlane
           file_relative_path_to_folder = Pathname.new(File.expand_path(file)).relative_path_from(Pathname.new(File.expand_path(folder))).to_s
           file_name = url_part + '/' + file_relative_path_to_folder
 
-          file_url = self.upload_file(s3_client, s3_bucket, app_directory, file_name, file_data, acl, server_side_encryption)
+          file_url = self.upload_file(s3_client, s3_bucket, host_override, app_directory, file_name, file_data, acl, server_side_encryption)
           Actions.lane_context[SharedValues::S3_FOLDER_OUTPUT_PATH] = file_url.gsub('/' + file_relative_path_to_folder, '')
         end
       end
 
 
 
-      def self.upload_file(s3_client, bucket_name, app_directory, file_name, file_data, acl, server_side_encryption)
+      def self.upload_file(s3_client, bucket_name, host_override, app_directory, file_name, file_data, acl, server_side_encryption)
 
         if app_directory
           file_name = "#{app_directory}/#{file_name}"
@@ -551,6 +564,7 @@ module Fastlane
           acl: acl,
           key: file_name,
           body: file_data,
+          cache_control: "no-store",
           content_type: MIME::Types.type_for(File.extname(file_name)).first.to_s
         }
         details = details.merge(server_side_encryption: server_side_encryption) if server_side_encryption.length > 0
@@ -565,7 +579,15 @@ module Fastlane
         end
 
         # Return public url
-        obj.public_url.to_s
+        uri = Addressable::URI.parse(obj.public_url.to_s)
+
+
+        unless host_override.empty?
+            puts "Overriding host to #{host_override}"
+            uri.host = host_override
+        end
+
+        return uri.to_s
       end
 
       #
@@ -610,6 +632,11 @@ module Fastlane
           FastlaneCore::ConfigItem.new(key: :xcarchive,
                                        env_name: "",
                                        description: ".xcarchive file for the build. Set to a path to an `.xcarchive` file or `nil` for `Actions.lane_context[SharedValues::XCODEBUILD_ARCHIVE])` to be used",
+                                       optional: true,
+                                       default_value: ""),
+          FastlaneCore::ConfigItem.new(key: :host_override,
+                                       env_name: "",
+                                       description: "Override the hostname",
                                        optional: true,
                                        default_value: ""),
           FastlaneCore::ConfigItem.new(key: :dsym,
