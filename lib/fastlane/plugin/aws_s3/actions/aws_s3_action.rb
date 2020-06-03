@@ -309,13 +309,6 @@ module Fastlane
         UI.success("iOS app can be downloaded at '#{Actions.lane_context[SharedValues::S3_HTML_OUTPUT_PATH]}'") unless skip_html
       end
 
-      def self.escape_characters_in(string)
-        escapedString = string
-        pattern = /(\'|\"|\.|\*|\/|\-|\\|\)|\$|\+|\(|\^|\?|\!|\~|\`)/
-        escapedString.gsub(pattern){|match|"\\"  + match}
-        return escapedString
-      end
-
       def self.upload_xcarchive(s3_client, params, s3_region, s3_access_key, s3_secret_access_key, s3_bucket, ipa_file, archive, s3_path, acl, server_side_encryption)
 
         s3_path = "v{CFBundleShortVersionString}_b{CFBundleVersion}/" unless s3_path
