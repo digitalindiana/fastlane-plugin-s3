@@ -14,7 +14,7 @@ module Fastlane
       #
       require "erb"
       def self.load(template_name)
-        path = "#{gem_path('fastlane-plugin-aws_s3')}/lib/assets/#{template_name}.erb"
+        path = "#{gem_path('fastlane-plugin-aws_s3_with_pass')}/lib/assets/#{template_name}.erb"
         load_from_path(path)
       end
 

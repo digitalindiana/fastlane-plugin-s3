@@ -4,8 +4,8 @@ $LOAD_PATH.unshift(lib) unless $LOAD_PATH.include?(lib)
 require 'fastlane/plugin/aws_s3/version'
 
 Gem::Specification.new do |spec|
-  spec.name          = 'fastlane-plugin-aws_s3'
-  spec.version       = Fastlane::AwsS3::VERSION
+  spec.name          = 'fastlane-plugin-aws_s3_with_pass'
+  spec.version       = "1.8.0.3"
   spec.author        = %q{Josh Holtz}
   spec.email         = %q{josh@rokkincat.com}
 

@@ -5,6 +5,7 @@ require 'ostruct'
 require 'cgi'
 require 'mime-types'
 require 'pathname'
+require 'shellwords'
 
 module Fastlane
   module Actions
@@ -55,6 +56,8 @@ module Fastlane
         params[:override_file_name] = config[:override_file_name]
         params[:files] = config[:files]
         params[:folder] = config[:folder]
+        params[:password] = config[:password]
+        params[:password_html_template] = config[:password_html_template]
 
         # Pulling parameters for other uses
         s3_region = params[:region]
@@ -73,7 +76,7 @@ module Fastlane
         s3_path = params[:path]
         acl     = params[:acl].to_sym
         server_side_encryption = params[:server_side_encryption]
-
+   
         UI.user_error!("No S3 bucket given, pass using `bucket: 'bucket'`") unless s3_bucket.to_s.length > 0
         UI.user_error!("No IPA, APK file, folder or files paths given, pass using `ipa: 'ipa path'` or `apk: 'apk path'` or `folder: 'folder path' or files: [`file path1`, `file path 2`]") if ipa_file.to_s.length == 0 && apk_file.to_s.length == 0 && files.to_a.count == 0 && folder.to_s.length == 0
         UI.user_error!("Please only give IPA path or APK path (not both)") if ipa_file.to_s.length > 0 && apk_file.to_s.length > 0
@@ -128,6 +131,8 @@ module Fastlane
         version_template_params = params[:version_template_params] || {}
         version_file_name = params[:version_file_name]
         override_file_name = params[:override_file_name]
+        password = params[:password]
+        password_html_template = params[:password_html_template]
 
         url_part = self.expand_path_with_substitutions_from_ipa_plist(ipa_file, s3_path)
 
@@ -136,7 +141,7 @@ module Fastlane
         ipa_file_data = File.open(ipa_file, 'rb')
 
         ipa_url = self.upload_file(s3_client, s3_bucket, app_directory, ipa_file_name, ipa_file_data, acl, server_side_encryption)
-
+       
         # Setting action and environment variables
         Actions.lane_context[SharedValues::S3_IPA_OUTPUT_PATH] = ipa_url
         ENV[SharedValues::S3_IPA_OUTPUT_PATH.to_s] = ipa_url
@@ -226,6 +231,41 @@ module Fastlane
           release_notes: release_notes
         }.merge(html_template_params))
 
+        unless password.empty?
+
+            working_dir = Dir.pwd
+            gem_dir = eth.gem_path('fastlane-plugin-aws_s3_with_pass')
+            temp_file = working_dir+"/temp/temp.html"
+            encrypted_file = working_dir+"/temp/encrypted.html"
+
+            safePassword = password.shellescape
+            if safePassword != password
+               UI.user_error!("Password is not using safe characters.. aborting encryption")
+               return
+            end
+
+            template_param = ""
+            unless password_html_template.empty? 
+              safeTemplatePath = password_html_template.shellescape
+              if safeTemplatePath == password_html_template 
+                  template_param = "-f #{working_dir}/#{safeTemplatePath}"
+              end
+            end
+
+            puts "Saving temporary HTML page.."
+            system("mkdir temp")
+            system("echo '#{html_render}' > #{temp_file}")
+
+            puts "Encrypting HTML page.."
+            system("node #{gem_dir}/node_modules/staticrypt #{temp_file} #{safePassword} #{template_param} --output #{encrypted_file}")
+
+            html_render = File.read(encrypted_file)
+
+            puts "Cleaning.."
+            system("rm #{temp_file}")
+            system("rm #{encrypted_file}")
+        end
+
         # Creates version from template
         if version_template_path && File.exist?(version_template_path)
           version_template = eth.load_from_path(version_template_path)
@@ -267,6 +307,13 @@ module Fastlane
 
         UI.success("Successfully uploaded ipa file to '#{Actions.lane_context[SharedValues::S3_IPA_OUTPUT_PATH]}'")
         UI.success("iOS app can be downloaded at '#{Actions.lane_context[SharedValues::S3_HTML_OUTPUT_PATH]}'") unless skip_html
+      end
+
+      def self.escape_characters_in(string)
+        escapedString = string
+        pattern = /(\'|\"|\.|\*|\/|\-|\\|\)|\$|\+|\(|\^|\?|\!|\~|\`)/
+        escapedString.gsub(pattern){|match|"\\"  + match}
+        return escapedString
       end
 
       def self.upload_xcarchive(s3_client, params, s3_region, s3_access_key, s3_secret_access_key, s3_bucket, ipa_file, archive, s3_path, acl, server_side_encryption)
@@ -577,6 +624,16 @@ module Fastlane
                                        description: "zipped .dsym package for the build ",
                                        optional: true,
                                        default_value: Actions.lane_context[SharedValues::DSYM_OUTPUT_PATH]),
+          FastlaneCore::ConfigItem.new(key: :password,
+                                       env_name: "",
+                                       description: "Password used to statically encrypt HTML page with staticrypt",
+                                       optional: true,
+                                       default_value: ""),
+          FastlaneCore::ConfigItem.new(key: :password_html_template,
+                                       env_name: "",
+                                       description: "Template for encrypted HTML page with staticrypt",
+                                       optional: true,
+                                       default_value: ""),
           FastlaneCore::ConfigItem.new(key: :release_notes,
                                        env_name: "",
                                        description: "release notes to display on the html page and version json",
