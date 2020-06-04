@@ -61,6 +61,7 @@ module Fastlane
         params[:password] = config[:password]
         params[:password_html_template] = config[:password_html_template]
         params[:host_override] = config[:host_override]
+        params[:extra_info] = config[:extra_info]
 
         # Pulling parameters for other uses
         s3_region = params[:region]
@@ -138,6 +139,7 @@ module Fastlane
         password = params[:password]
         password_html_template = params[:password_html_template]
         host_override = params[:host_override]
+        extra_info = params[:extra_info]
 
         url_part = self.expand_path_with_substitutions_from_ipa_plist(ipa_file, s3_path)
 
@@ -263,6 +265,10 @@ module Fastlane
 
             tz = TZInfo::Timezone.get('US/Pacific')
             description = "Last updated: #{Time.now.getlocal(tz.current_period.offset.utc_total_offset)}"
+
+            unless extra_info.empty?
+                description = "#{description}<br>#{extra_info}"
+            end
 
             puts "Encrypting HTML page.."
             system("node #{gem_dir}/node_modules/staticrypt #{temp_file} #{safePassword} #{template_param} -o #{encrypted_file} -i '#{description}'")
@@ -637,6 +643,11 @@ module Fastlane
           FastlaneCore::ConfigItem.new(key: :host_override,
                                        env_name: "",
                                        description: "Override the hostname",
+                                       optional: true,
+                                       default_value: ""),
+          FastlaneCore::ConfigItem.new(key: :extra_info,
+                                       env_name: "",
+                                       description: "Extra info",
                                        optional: true,
                                        default_value: ""),
           FastlaneCore::ConfigItem.new(key: :dsym,
