@@ -5,7 +5,7 @@ require 'fastlane/plugin/aws_s3/version'
 
 Gem::Specification.new do |spec|
   spec.name          = 'fastlane-plugin-aws_s3_with_pass'
-  spec.version       = "1.8.0.6"
+  spec.version       = "1.8.0.7"
   spec.author        = %q{Josh Holtz}
   spec.email         = %q{josh@rokkincat.com}
 
