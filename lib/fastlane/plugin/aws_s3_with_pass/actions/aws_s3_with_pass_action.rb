@@ -24,7 +24,7 @@ module Fastlane
       S3_FOLDER_OUTPUT_PATH ||= :S3_FOLDER_OUTPUT_PATH
     end
 
-    class AwsS3Action < Action
+    class AwsS3WithPassAction < Action
       def self.run(config)
         # Calling fetch on config so that default values will be used
         params = {}
